@@ -3,11 +3,10 @@ services:
     image: mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: seo
+      MYSQL_DATABASE: ${DB_NAME:-seo}
     ports: ["3307:3306"]
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
       interval: 5s
@@ -15,43 +14,62 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    # BullMQ needs noeviction so queue keys are never dropped under memory pressure
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    ports: ["6380:6379"]
+    volumes:
+      - redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes:
+      - ollama_data:/root/.ollama
+    # first run: docker compose exec ollama ollama pull qwen2.5:1.5b
 
   api:
     build: ./api
-    environment:
+    command: ["sh", "-c", "node src/db/migrate.js && node src/index.js"]
+    environment: &app_env
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 4000
       DB_HOST: mysql
+      DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      DB_NAME: seo
+      DB_NAME: ${DB_NAME:-seo}
+      REDIS_URL: redis://redis:6379
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
       JWT_SECRET: ${JWT_SECRET:-change-me}
-      INTERNAL_KEY: ${INTERNAL_KEY:-internal-change-me}
-      INTEL_URL: http://intel:8000
-      WEB_ORIGIN: http://localhost:3000
+      ENC_KEY: ${ENC_KEY:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      APP_URL: ${APP_URL:-http://localhost:3000}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: http://localhost:4000/google/callback
-      ENC_KEY: ${ENC_KEY:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/google/callback}
+      BILLING_WEBHOOK_SECRET: ${BILLING_WEBHOOK_SECRET:-}
     ports: ["4000:4000"]
     depends_on:
-      mysql: {condition: service_healthy}
+      mysql: { condition: service_healthy }
+      redis: { condition: service_started }
 
-  intel:
-    build: ./intel
-    environment:
-      INTERNAL_KEY: ${INTERNAL_KEY:-internal-change-me}
-      API_URL: http://api:4000
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
-    ports: ["8000:8000"]
+  worker:
+    build: ./api
+    command: ["node", "src/worker.js"]
+    environment: *app_env
+    depends_on:
+      api: { condition: service_started }
+      ollama: { condition: service_started }
 
   web:
     build: ./web
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
     ports: ["3000:3000"]
     depends_on: [api]
 
 volumes:
   mysql_data:
+  redis_data:
+  ollama_data:

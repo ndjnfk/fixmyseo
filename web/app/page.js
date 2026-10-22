@@ -7,6 +7,13 @@ import { api, getToken, setToken, takeLogoutReason } from "../lib/api";
 export default function Login() {
   const router = useRouter();
   const [mode, setMode] = useState("login");
+  const [forgotMsg, setForgotMsg] = useState("");
+  async function forgot() {
+    if (!f.email) return setErr("Enter your email first");
+    setErr("");
+    try { await api("/auth/forgot", { method: "POST", body: { email: f.email } }); setForgotMsg("If that email has an account, a reset link was sent."); }
+    catch (e) { setErr(e.message); }
+  }
   const [f, setF] = useState({ email: "", password: "", orgName: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -80,7 +87,8 @@ export default function Login() {
             </button>
           </div>
         </div>
-      </form>
+        {login && <p className="small" style={{ marginTop: 10 }}><button type="button" className="link-btn" onClick={forgot}>Forgot password?</button>{forgotMsg && <span className="muted"> {forgotMsg}</span>}</p>}
+        </form>
     </div>
   );
 }

@@ -27,7 +27,7 @@ export default function Sites() {
     setBusy(true);
     try {
       const s = await api("/sites", { method: "POST", body: { url } });
-      await api(`/sites/${s.id}/audit`, { method: "POST" });
+      await api(`/sites/${s.id}/audit`, { method: "POST", body: {} });
       setUrl("");
       load();
     } catch (e) {
@@ -78,7 +78,7 @@ export default function Sites() {
                   {s.last_run_status
                     ? <span className={`badge ${s.last_run_status}`}>Audit {s.last_run_status}</span>
                     : <span className="badge">Never audited</span>}
-                  <span className="small"><b>{s.open_issues ?? "-"}</b> <span className="muted">issues</span></span>
+                  <span className="small">{s.score != null && <><b>{s.score}</b><span className="muted">/100 · </span></>}<b>{s.open_issues ?? "-"}</b> <span className="muted">issues</span></span>
                 </div>
               </Link>
             ))}

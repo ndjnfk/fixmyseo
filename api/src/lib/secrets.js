@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
-const { ENC_KEY } = process.env;
+import { config } from "../config.js";
+const ENC_KEY = config.ENC_KEY;
 
 export const encReady = () => ENC_KEY?.length === 64;
 

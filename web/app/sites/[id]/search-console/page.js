@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../../../../lib/api";
+import { api, pollJob } from "../../../../lib/api";
 import { Card, Empty, Stat } from "../../../../components/ui";
 import { useSite } from "../SiteContext";
 
@@ -27,21 +27,21 @@ function QueryTable({ title, desc, rows, label }) {
 }
 
 export default function SearchConsole() {
-  const { id: siteId, data } = useSite();
+  const { id: siteId, data, isAdmin, canEdit } = useSite();
   const property = data.site.gsc_property;
   const [status, setStatus] = useState(null);
   const [props, setProps] = useState([]);
   const [sel, setSel] = useState("");
   const [sum, setSum] = useState(null);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
 
   const loadSummary = () => api(`/sites/${siteId}/gsc/summary`).then(setSum).catch((e) => setErr(e.message));
 
   useEffect(() => {
     api("/google/status").then((s) => {
       setStatus(s);
-      if (s.connected && !property) {
+      if (s.connected && !property && isAdmin) {
         api("/google/properties").then((p) => { setProps(p); setSel(p[0]?.property || ""); }).catch((e) => setErr(e.message));
       }
     }).catch((e) => setErr(e.message));
@@ -49,44 +49,44 @@ export default function SearchConsole() {
   }, [siteId, property]);
 
   async function connect() {
-    try {
-      const { url } = await api(`/google/auth-url?site=${siteId}`);
-      window.location.href = url;
-    } catch (e) { setErr(e.message); }
-  }
-
-  async function link() {
-    setErr(""); setBusy(true);
-    try { await api(`/sites/${siteId}/gsc`, { method: "POST", body: { property: sel } }); window.location.reload(); }
-    catch (e) { setErr(e.message); setBusy(false); }
-  }
-
-  async function disconnect() {
-    if (!confirm("Disconnect Google? This deletes all synced Search Console data for your account.")) return;
-    setErr(""); setBusy(true);
-    try { await api("/google/connection", { method: "DELETE" }); window.location.reload(); }
-    catch (e) { setErr(e.message); setBusy(false); }
-  }
-
-  async function sync() {
-    setErr(""); setBusy(true);
-    try { await api(`/sites/${siteId}/gsc/sync`, { method: "POST" }); await loadSummary(); }
+    try { const { url } = await api(`/google/auth-url?site=${siteId}`); window.location.href = url; }
     catch (e) { setErr(e.message); }
-    setBusy(false);
+  }
+  async function link() {
+    setErr(""); setBusy("link");
+    try { await api(`/sites/${siteId}/gsc`, { method: "POST", body: { property: sel } }); window.location.reload(); }
+    catch (e) { setErr(e.message); setBusy(""); }
+  }
+  async function disconnect() {
+    if (!confirm("Disconnect Google? This deletes all synced Search Console data for your organization.")) return;
+    setErr(""); setBusy("disc");
+    try { await api("/google/connection", { method: "DELETE" }); window.location.reload(); }
+    catch (e) { setErr(e.message); setBusy(""); }
+  }
+  async function sync() {
+    setErr(""); setBusy("Queued...");
+    try {
+      const r = await api(`/sites/${siteId}/gsc/sync`, { method: "POST" });
+      await pollJob(r.job_id, { onTick: (j) => setBusy(`Sync ${j.status}...`) });
+      await loadSummary();
+    } catch (e) { setErr(e.message); }
+    setBusy("");
   }
 
   if (!status) return err ? <div className="notice error">{err}</div> : <span className="muted">Loading...</span>;
 
   if (!status.configured)
     return <Card title="Google Search Console"><div className="notice warn">Google integration is not configured yet. Missing in the server <code>.env</code>:{" "}
-      {(status.missing?.length ? status.missing : ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ENC_KEY (64 characters)"])
-        .map((m, i) => <span key={m}>{i > 0 && ", "}<code>{m}</code></span>)}. Then restart the API.</div></Card>;
+      {(status.missing?.length ? status.missing : ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "ENC_KEY (64 characters)"]).map((m, i) => <span key={m}>{i > 0 && ", "}<code>{m}</code></span>)}. Then restart the API.</div></Card>;
+
+  if (!status.plan_allows)
+    return <Card title="Google Search Console"><div className="notice warn">Search Console is not included in your current plan. See <a href="/billing">Plan &amp; usage</a>.</div></Card>;
 
   if (!status.connected)
     return (
-      <Card title="Google Search Console" actions={<button onClick={connect}>Connect Google</button>}>
-        <p className="muted" style={{ margin: 0 }}>Connect your Google account to see real queries, clicks and positions, and to let FixMySEO submit your sitemap and check indexing.
-          You can disconnect at any time.</p>
+      <Card title="Google Search Console" actions={isAdmin && <button onClick={connect}>Connect Google</button>}>
+        <p className="muted" style={{ margin: 0 }}>Connect your Google account to see real queries, clicks and positions (observed data, not estimates), and to let FixMySEO submit your sitemap and check indexing. You can disconnect at any time.</p>
+        {!isAdmin && <p className="muted small">An admin must connect Google.</p>}
         {err && <div className="notice error" style={{ marginTop: 12 }}>{err}</div>}
       </Card>
     );
@@ -99,8 +99,8 @@ export default function SearchConsole() {
           <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ width: "auto", minWidth: 260 }}>
             {props.map((p) => <option key={p.property} value={p.property}>{p.property}</option>)}
           </select>
-          <button onClick={link} disabled={busy || !sel}>Link property</button>
-          <button className="ghost" onClick={disconnect} disabled={busy}>Disconnect Google</button>
+          <button onClick={link} disabled={Boolean(busy) || !sel || !isAdmin}>Link property</button>
+          {isAdmin && <button className="ghost" onClick={disconnect} disabled={Boolean(busy)}>Disconnect Google</button>}
         </div>
         {props.length === 0 && <p className="muted">No verified properties found.</p>}
         {err && <div className="notice error" style={{ marginTop: 12 }}>{err}</div>}
@@ -112,24 +112,22 @@ export default function SearchConsole() {
     <div className="stack">
       <Card title={property} actions={
         <>
-          <button className="ghost" onClick={disconnect} disabled={busy}>Disconnect</button>
-          <button onClick={sync} disabled={busy}>{busy ? "Syncing..." : "Sync now (90 days)"}</button>
+          {isAdmin && <button className="ghost" onClick={disconnect} disabled={Boolean(busy)}>Disconnect</button>}
+          {canEdit && <button onClick={sync} disabled={Boolean(busy)}>{busy || "Sync now (90 days)"}</button>}
         </>
       }>
         <div className="muted small">
-          {sum?.last_sync ? `Last sync: ${new Date(sum.last_sync).toLocaleString()}` : "Not synced yet"} · auto sync daily · {status.email}
+          {sum?.last_sync ? `Last sync: ${new Date(sum.last_sync).toLocaleString()}` : "Not synced yet"} · auto sync daily · {status.email} · source: Google Search Console (observed)
         </div>
         {(err || sum?.sync_error) && <div className="notice error" style={{ marginTop: 12 }}>{err || sum.sync_error}</div>}
-        {!status.can_submit && (
+        {!status.can_submit && isAdmin && (
           <div className="notice warn" style={{ marginTop: 12 }}>
             Sitemap auto-submit needs an extra permission. <a href="#" onClick={(e) => { e.preventDefault(); connect(); }}>Reconnect Google</a>
           </div>
         )}
       </Card>
 
-      {sum && sum.daily.length === 0 && (
-        <Card><Empty title="No data yet">New or low-traffic sites may show no data for the first few days.</Empty></Card>
-      )}
+      {sum && sum.daily.length === 0 && <Card><Empty title="No data yet">New or low-traffic sites may show no data for the first few days.</Empty></Card>}
 
       {sum && sum.daily.length > 0 && (
         <>

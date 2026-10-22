@@ -5,9 +5,9 @@ import { JOB_LABEL, useSite, when } from "./SiteContext";
 import { RecList, useRecommendations } from "./Recommendations";
 
 export default function Overview() {
-  const { id, data, auto } = useSite();
+  const { id, data, auto, pending } = useSite();
   const { recs } = useRecommendations();
-  const { site, runs, summary } = data;
+  const { site, runs, summary, report } = data;
   const base = `/sites/${id}`;
   const count = (sev) => summary.filter((s) => s.severity === sev).reduce((a, s) => a + s.count, 0);
   const lastDone = runs.find((r) => r.status === "done");
@@ -20,7 +20,8 @@ export default function Overview() {
       {runs[0]?.status === "failed" && <div className="notice error">Last audit failed: {runs[0].error}</div>}
 
       <div className="stats">
-        <Stat label="Pages crawled" value={lastDone?.pages_crawled ?? "-"} sub={lastDone?.finished_at ? `Audit: ${when(lastDone.finished_at)}` : "No audit yet"} />
+        <Stat label="Health score" value={report ? `${report.score}/100` : "-"} tone={report ? (report.score >= 80 ? "ok" : report.score >= 50 ? "med" : "high") : ""} sub={lastDone?.finished_at ? `Audit: ${when(lastDone.finished_at)}` : "No audit yet"} />
+        <Stat label="Pages crawled" value={lastDone?.pages_crawled ?? "-"} sub={runs[0] && ["queued", "running"].includes(runs[0].status) ? `Audit ${runs[0].status} ${runs[0].progress || 0}%` : ""} />
         <Stat label="High issues" value={count("high")} tone={count("high") ? "high" : "ok"} />
         <Stat label="Medium issues" value={count("med")} tone={count("med") ? "med" : "ok"} />
         <Stat label="Low issues" value={count("low")} />
@@ -59,6 +60,7 @@ export default function Overview() {
             <div><span>Search Console</span><Badge tone={site.gsc_property ? "done" : "warn"}>{site.gsc_property ? "Linked" : "Not linked"}</Badge></div>
             <div><span>Keyword gaps</span><Link href={`${base}/keywords`}><b>{gaps}</b></Link></div>
             <div><span>Alerts</span><Link href={`${base}/automation`}><b>{alerts}</b></Link></div>
+            <div><span>AI suggestions to review</span><Link href={`${base}/ai`}><b>{pending}</b></Link></div>
             <div><span>Keyword research</span><Badge tone={cfg?.autonomy.keywords === "off" ? "low" : "info"}>{cfg?.autonomy.keywords ?? "…"}</Badge></div>
             <div><span>Indexing</span><Badge tone={cfg?.autonomy.indexing === "off" ? "low" : "info"}>{cfg?.autonomy.indexing ?? "…"}</Badge></div>
           </div>

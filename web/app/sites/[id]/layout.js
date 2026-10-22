@@ -10,8 +10,12 @@ const TABS = [
   { href: "/recommendations", label: "Recommendations" },
   { href: "/issues", label: "Issues", count: (d) => d.data?.issues.length },
   { href: "/pages", label: "Pages" },
-  { href: "/search-console", label: "Search Console" },
+  { href: "/links", label: "Links" },
+  { href: "/content", label: "Content" },
   { href: "/keywords", label: "Keywords", count: (d) => d.auto?.keywords.length },
+  { href: "/ai", label: "AI", count: (d) => d.pending },
+  { href: "/search-console", label: "Search Console" },
+  { href: "/reports", label: "Reports" },
   { href: "/automation", label: "Automation" },
   { href: "/settings", label: "Settings" },
 ];
@@ -27,12 +31,13 @@ function Shell({ children }) {
     return <div className="wrap page">{err ? <div className="notice error">{err}</div> : <span className="muted">Loading...</span>}</div>;
   }
 
-  const { site, runs } = data;
+  const { site, runs, role } = data;
   const active = runs[0] && ["queued", "running"].includes(runs[0].status);
+  const canEdit = ["editor", "admin", "owner"].includes(role);
 
   async function rerun() {
     setRunErr("");
-    try { await api(`/sites/${id}/audit`, { method: "POST" }); load(); } catch (e) { setRunErr(e.message); }
+    try { await api(`/sites/${id}/audit`, { method: "POST", body: {} }); load(); } catch (e) { setRunErr(e.message); }
   }
 
   return (
@@ -47,7 +52,7 @@ function Shell({ children }) {
         </div>
         <div className="row">
           <a className="btn ghost" href={site.url || `https://${site.domain}`} target="_blank" rel="noreferrer">Visit site ↗</a>
-          <button onClick={rerun} disabled={active}>{active ? `Audit ${runs[0].status}...` : "Re-run audit"}</button>
+          {canEdit && <button onClick={rerun} disabled={active}>{active ? `Audit ${runs[0].status}... ${runs[0].progress || 0}%` : "Re-run audit"}</button>}
         </div>
       </div>
       {runErr && <div className="notice error" style={{ marginBottom: 16 }}>{runErr}</div>}
